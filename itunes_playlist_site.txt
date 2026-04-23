@@ -1,0 +1,638 @@
+================================================================================
+  iTunes Playlist Site Generator — User Manual
+  Version 2.4
+================================================================================
+
+OVERVIEW
+--------
+This toolset builds a complete static website from a collection of iTunes XML
+playlist files. The output is a fully self-contained folder that can be served
+locally or deployed to GitHub Pages (or any static host).
+
+Features:
+  • Magazine-style dark theme with gold accent
+  • Landing page with art-cloud mosaic cards for each playlist
+  • Per-playlist pages with 3-column track card grid
+  • Album artwork fetched from MusicBrainz Cover Art Archive / Deezer / MP3 tags
+  • Clickable links per track — review pills (Pitchfork, BBC, etc.) in gold + database pills (AllMusic, Discogs, RYM, etc.)
+  • Always-present streaming links (YouTube, Spotify, Apple Music, Deezer, Bandcamp, SoundCloud)
+  • Client-side full-text search with Fuse.js (song title, cover artist, original artist)
+  • Incremental builds — only re-builds changed playlists
+  • Covers mode — displays "orig. Artist" label on each track card
+  • Per-playlist overrides for MBID, album name, and artwork
+  • All settings in config.ini — no hardcoded paths anywhere
+
+
+FILES IN THIS PACKAGE
+---------------------
+  config.ini               All configuration — paths, API settings, site branding
+  build_site.py            Site orchestrator — builds the full website
+  playlist_generator.py    Per-playlist engine — generates one playlist page
+  style.css                Shared stylesheet (magazine dark theme)
+  rebuild_site.bat         Windows: run this to rebuild the site
+  upload_site.bat          Windows: run this to push to GitHub Pages
+  itunes_playlist_site.txt This manual
+  itunes_playlist_site_spec.md  Full technical specification
+
+
+QUICK START
+-----------
+1. Install dependencies:
+     pip install requests mutagen Pillow
+
+2. Edit config.ini — set your xml_input_dir and output_dir paths.
+
+3. Place your iTunes XML files in xml_input_dir.
+
+4. Build the site:
+     Double-click rebuild_site.bat
+     — or —
+     python3 build_site.py
+
+5. Preview locally:
+     cd <your output_dir> && python3 -m http.server 8000
+     Open: http://localhost:8000/
+
+6. Deploy to GitHub Pages:
+     Double-click upload_site.bat
+     — or —
+     cd <your output_dir>
+     git add . && git commit -m "Update site" && git push --force origin main
+
+
+OUTPUT STRUCTURE
+----------------
+  output/
+  ├── index.html              Landing page (playlist card grid)
+  ├── search.html             Search page (Fuse.js)
+  ├── search_index.json       Search index (loaded by search.html)
+  ├── style.css               Shared stylesheet
+  ├── CNAME                   GitHub Pages custom domain file (auto-generated)
+  ├── .build_state.json       Incremental build cache (do not edit)
+  └── playlists/
+      ├── covers-xx/
+      │   ├── index.html      Playlist page
+      │   ├── playlist_meta.json  Metadata used by build_site.py
+      │   └── img/            Artwork images for this playlist
+      │       ├── 01.jpg
+      │       ├── 02.jpg
+      │       └── ...
+      └── another-playlist/
+          └── ...
+
+All HTML uses root-relative paths (/style.css, /playlists/slug/img/01.jpg)
+so the site must be served from a web server, not opened as a local file.
+For local testing, always use: python3 -m http.server 8000
+
+
+================================================================================
+  build_site.py — Site Orchestrator
+================================================================================
+
+USAGE
+-----
+  python3 build_site.py [options]
+  (paths and settings read from config.ini — no arguments required for normal use)
+
+OPTIONS
+-------
+  --input, -i DIR           Directory containing iTunes XML playlist files (.xml).
+                            Overrides xml_input_dir in config.ini.
+
+  --output, -o DIR          Output directory for generated site.
+                            Overrides output_dir in config.ini.
+
+  --print-config SECTION.KEY  Print a single config.ini value and exit.
+                            Example: --print-config paths.output_dir
+                            (Used internally by upload_site.bat)
+
+  --only NAME               Build only the playlist whose name contains NAME
+                            (case-insensitive partial match). Useful for testing
+                            a single playlist without rebuilding the whole site.
+                            Example: --only "Covers XX"
+
+  --force                   Force rebuild all playlists, ignoring the incremental
+                            build cache. Use this after changing style.css or
+                            config.ini settings that affect all pages.
+
+  --dry-run                 Show what would be built without writing any files.
+                            Useful for checking which playlists need rebuilding.
+
+  --serve                   Start a local HTTP server on the output directory
+                            after the build completes.
+
+  --port N                  Port for --serve. Default: 8000
+
+  --no-search               Skip generating search.html and search_index.json.
+
+  --no-index                Skip generating index.html. Useful with --only when
+                            you don't want to overwrite the landing page.
+
+  --covers-mode             Enable covers display mode for all playlists.
+                            Overrides the covers_mode setting in config.ini.
+                            In covers mode, song titles may include "[Orig Artist]"
+                            which is parsed and displayed as "orig. Artist" on cards.
+
+  --verbose, -v             Show detailed output for each track as it's processed.
+
+EXAMPLES
+--------
+  # Build the full site (paths from config.ini)
+  python3 build_site.py
+
+  # Force rebuild everything (after changing style.css)
+  python3 build_site.py --force
+
+  # Build and preview one playlist only
+  python3 build_site.py --only "Covers XX" --no-index --serve
+
+  # Dry run — see what needs rebuilding
+  python3 build_site.py --dry-run
+
+  # Override paths on the command line (ignores config.ini for these values)
+  python3 build_site.py --input ~/Playlists --output ~/my-site
+
+INCREMENTAL BUILDS
+------------------
+build_site.py checksums each XML file and only rebuilds playlists that have
+changed since the last run. State is stored in output/.build_state.json.
+
+To force a full rebuild, use --force or delete .build_state.json.
+
+Skipped (cached) playlists still contribute their metadata to index.html
+and search_index.json — the entire site is always consistent.
+
+
+================================================================================
+  playlist_generator.py — Per-Playlist Engine
+================================================================================
+
+Can be used standalone to build a single playlist page, or is called
+automatically by build_site.py for each playlist.
+
+USAGE
+-----
+  python3 playlist_generator.py XML_FILE [options]
+
+REQUIRED ARGUMENTS
+------------------
+  XML_FILE
+      Path to an iTunes XML library/playlist file.
+
+OPTIONS
+-------
+  --output-dir DIR          Output directory. Default: ./output
+                            When called by build_site.py, this is set to
+                            output/playlists/<slug>/ automatically.
+
+  --playlist NAME           Name of the playlist to use within the XML.
+                            Required if the XML contains multiple playlists
+                            and you want to select a specific one.
+
+  --slug TEXT               URL slug for this playlist (used in file paths).
+                            Derived from the playlist name if not specified.
+
+  --overrides FILE          Path to a JSON overrides file. See OVERRIDES below.
+                            Auto-detected as <slug>_overrides.json in the input
+                            directory if not specified.
+
+  --covers-mode             Enable covers mode (default: on).
+                            Parses "Song Title [Orig Artist]" from iTunes Name field.
+                            Displays "orig. Artist" label on each track card.
+
+  --no-covers-mode          Disable covers mode.
+
+  --site-title TEXT         Site name shown in the page header. Default: "Playlists"
+
+  --accent-color HEX        Accent colour for the page. Default: #e8b84b
+
+  --art-cache-dir DIR       Shared artwork cache directory. Use this to share
+                            the cache between multiple playlist builds.
+
+  --img-dir DIR             Directory to save artwork image files.
+                            Default: output-dir/img/
+
+  --site-root               Use root-relative paths in generated HTML.
+                            Always use this flag when building as part of a site.
+
+  --list-playlists          List all playlists found in the XML and exit.
+
+EXAMPLES
+--------
+  # List playlists in an XML file
+  python3 playlist_generator.py "My Library.xml" --list-playlists
+
+  # Build a single playlist page standalone
+  python3 playlist_generator.py "Covers XX.xml" \
+      --output-dir ./output/playlists/covers-xx \
+      --covers-mode --site-root
+
+  # Build with overrides
+  python3 playlist_generator.py "Covers XX.xml" \
+      --output-dir ./output/playlists/covers-xx \
+      --overrides covers-xx_overrides.json \
+      --covers-mode --site-root
+
+
+================================================================================
+  CONFIG.INI — Main Configuration File
+================================================================================
+
+config.ini lives in the same folder as the scripts. It is the single source of
+truth for all settings. Edit it with any text editor.
+
+Key sections:
+
+  [paths]
+    xml_input_dir   Folder containing your iTunes XML files
+    output_dir      Folder where the generated website is written
+    art_cache_dir   Shared artwork cache (blank = inside output_dir)
+    links_cache     MusicBrainz links cache file (blank = inside output_dir)
+
+  [build]
+    covers_mode     true/false — show "orig. Artist" labels on cards
+    force_rebuild   true/false — rebuild all playlists even if unchanged
+    verbose         true/false — detailed per-track console output
+
+  [musicbrainz]
+    rate_delay      Seconds between API requests (min 1.0 — MB rate limit)
+    request_timeout Seconds to wait for each HTTP response
+    search_limit    Max results per MB search attempt
+    caa_image_size  Cover Art Archive resolution: 250, 500, or 1200
+
+  [site]
+    site_title      Appears in the hero, page titles, and nav bar
+    site_tagline    Subtitle on the landing page
+    accent_color    Hex colour for highlights and link pills (#e8b84b)
+    orig_label      Prefix before original artist, e.g. "orig."
+    hearmoretunes_url  Link in the hero tagline
+    custom_domain   Written to CNAME file for GitHub Pages (leave blank to skip)
+
+  [cdn]
+    fuse_js_url     Fuse.js CDN URL (used in search.html)
+    favicon_cdn_url Google Favicon CDN base URL (used in link pills)
+
+  [links]
+    enabled_review_sites  Comma-separated list of review pill keys to show
+    enabled_db_sites      Comma-separated list of database pill keys to show
+    *_search_url          Search URL templates per site (V2.x fallback feature)
+
+  [search_terms]
+    constructed_link_query  Query mode for streaming links:
+                            title_and_artist (default), title_only, artist_only,
+                            album_only, album_and_artist
+
+All settings are in config.ini. No other config files are needed.
+
+  [playlists]
+    playlist_order    Newline-separated list of playlist slugs (oldest-first).
+                      Controls the "Date Added" sort order on the landing page.
+                      Slugs are the lowercase-hyphenated form of the playlist name.
+                      Playlists not listed here appear after listed ones.
+
+                      Example:
+                        playlist_order =
+                            nuggets-396-covers-xx
+                            nuggets-397-covers-xxi
+
+
+================================================================================
+  OVERRIDES FILES
+================================================================================
+
+For playlists with tricky tracks (wrong MusicBrainz match, custom artwork, etc.),
+create a JSON overrides file alongside the XML:
+
+  Filename:  <playlist-slug>_overrides.json
+  Example:   nuggets-396-covers-xx-final_overrides.json
+
+FORMAT
+------
+  {
+    "mbid_overrides": {
+      "4": "c1aa4fa7-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    },
+    "album_display_overrides": {
+      "5": "The Whitey Album"
+    },
+    "art_file_overrides": {
+      "12": "/absolute/path/to/photo.jpg"
+    }
+  }
+
+Keys are track numbers as strings ("1", "2", ... "25").
+
+mbid_overrides
+  Override the MusicBrainz Release ID for a track. The MBID is used to:
+    • Fetch artwork from Cover Art Archive
+    • Fetch review/info links (AllMusic, Discogs, RYM, etc.)
+  Use this when the automatic album+artist search returns the wrong release.
+  Find the correct MBID on musicbrainz.org — it's the UUID in the release URL:
+    https://musicbrainz.org/release/c1aa4fa7-...
+
+album_display_overrides
+  Override the album name shown on the track card.
+  Useful when the iTunes album field contains a compilation name but you want
+  to display the correct original album.
+  Example: iTunes says "99 Best Covers Ever II" but you want "The Whitey Album".
+
+art_file_overrides
+  Use a local image file as the artwork for a track instead of fetching from
+  MusicBrainz or Deezer. Provide an absolute path to the image file.
+  Supports JPEG, PNG. The image is copied into the output img/ directory.
+  Example: use a press photo for a band that has no album art on MusicBrainz.
+
+
+================================================================================
+  ARTWORK LOOKUP — HOW IT WORKS
+================================================================================
+
+For each track, artwork is sought in this priority order:
+
+  1. art_file_overrides (local disk — highest priority, always read fresh)
+  2. Embedded APIC frame in the source MP3 file (local disk — no network)
+  3. Disk cache (previous successful fetch — skips all network if hit)
+  4. Deezer API (network — if the MP3 has a TXXX:deezer_source_id ID3 tag)
+  5. MusicBrainz Cover Art Archive (network — via MBID)
+
+If no artwork is found after all attempts, a grey placeholder with a ♪ symbol
+is displayed. The track card still shows all metadata and links.
+
+The artwork cache is stored in output/_cache/art/ by default, or in the shared
+location set by art_cache_dir in config.ini. Cached images persist across builds
+so artwork is not re-downloaded when rebuilding.
+
+
+================================================================================
+  SEARCH
+================================================================================
+
+The search feature is powered by Fuse.js (loaded from jsDelivr CDN).
+It searches song title and artist name across all playlists.
+
+The search index (search_index.json) is generated automatically by build_site.py
+from all playlist metadata. It contains one entry per track with fields:
+  title, artist, album, year, playlist (name), url (playlist page URL)
+
+Results are grouped by playlist and show track title, artist, and year.
+Clicking a playlist name navigates to that playlist's full page.
+
+The search is fuzzy — partial matches and minor typos are handled gracefully.
+Threshold is set to 0.35 (lower = stricter, higher = more permissive).
+
+Note: The search page loads search_index.json via fetch(), so it requires
+a web server. It will not work when opening search.html directly as a file.
+
+
+================================================================================
+  MUSICBRAINZ LOOKUP — HOW IT WORKS
+================================================================================
+
+For each track, the generator searches MusicBrainz using:
+  Album title + Artist name (from iTunes XML metadata)
+
+This is the album-first strategy — it finds the cover artist's release of the
+album, not the original recording. This is important for covers playlists where
+the artwork and links must match the cover version, not the original.
+
+Search strategy (in order):
+  1. Exact query:  release:"Album Title" AND artist:"Artist Name"
+  2. Fallback:     "Album Title" "Artist Name"  (loose match)
+  3. MBID override (if specified in overrides file — bypasses search entirely)
+
+The MBID is then used to:
+  • Fetch the album cover from Cover Art Archive
+  • Fetch URL relationships (reviews: Pitchfork, BBC, Chorus… + databases: AllMusic, Discogs, RYM, Wikidata…)
+
+Results are cached in output/_cache/<slug>_links.json. Cached results persist
+across builds so MusicBrainz is not re-queried for unchanged tracks.
+
+MusicBrainz rate limit: 1 request per second. Building a 25-track playlist
+takes approximately 50–60 seconds (2 requests per track: search + URL rels).
+
+
+================================================================================
+  LINKS — REVIEW PILLS AND DATABASE PILLS
+================================================================================
+
+Links on each track card come from MusicBrainz URL relationships for the
+matched release. They are split into two visual categories:
+
+  REVIEW PILLS (gold background — shown first)
+  ─────────────────────────────────────────────
+  Pitchfork, BBC, Chorus (chorus.fm / chorus.reviews), Guardian, Rolling Stone,
+  NME, Stereogum, Metacritic, and any other MusicBrainz "review"-type relation.
+  Unknown review sites are included automatically with the domain as the label —
+  no code update needed when MusicBrainz adds new review partnerships.
+
+  DATABASE PILLS (dark border — shown after reviews)
+  ───────────────────────────────────────────────────
+  AllMusic, Discogs, RateYourMusic (RYM), Wikidata, MusicBrainz, Last.fm,
+  45cat, SecondHandSongs, WhoSampled.
+
+  FAVICONS
+  ────────
+  Each pill shows the service's 16px favicon via Google's Favicon CDN:
+    https://www.google.com/s2/favicons?domain=pitchfork.com&sz=16
+  This requires a live internet connection when the page is viewed (fine for
+  Cloudflare Pages). Favicons help identify services at a glance.
+
+
+================================================================================
+  CLOUDFLARE PAGES DEPLOYMENT
+================================================================================
+
+DIRECT UPLOAD (recommended for most users)
+-------------------------------------------
+  1. Build the site:
+       python3 build_site.py --input ~/Playlists --output ~/my-site
+
+  2. Go to: https://dash.cloudflare.com/ → Workers & Pages → Create application
+     → Pages → Upload assets
+
+  3. Create a new project, give it a name.
+
+  4. Drag and drop your entire output folder (~/my-site/) into the upload area.
+
+  5. Click Deploy. Your site will be live at:
+       https://your-project-name.pages.dev
+
+  To update: re-run build_site.py and upload the new output folder.
+
+GIT-BACKED DEPLOYMENT (recommended if you use GitHub)
+------------------------------------------------------
+  1. Create a GitHub repository and push your output folder to it.
+
+  2. In Cloudflare Pages, connect the repository.
+
+  3. Set build command: (none — files are pre-built)
+     Set output directory: / (or the subfolder containing index.html)
+
+  4. Every push to the repository automatically deploys the site.
+
+CUSTOM DOMAIN
+-------------
+  In Cloudflare Pages → your project → Custom domains → Add a custom domain.
+  If your domain is already on Cloudflare, DNS is configured automatically.
+  HTTPS is provided automatically at no cost.
+
+FREE TIER LIMITS (as of 2024)
+------------------------------
+  Bandwidth:        Unlimited
+  Requests:         Unlimited
+  Build minutes:    500/month (not relevant for Direct Upload)
+  Sites:            Unlimited
+  Custom domains:   Unlimited
+
+  A site with 500 playlists × 25 tracks × ~100KB artwork = ~1.25GB.
+  This is well within Cloudflare Pages' free tier limits.
+
+_headers FILE
+-------------
+  build_site.py automatically generates a _headers file in the output directory.
+  This instructs Cloudflare Pages to apply cache-control headers:
+
+    HTML files:         1 hour  (updates picked up quickly)
+    search_index.json:  1 hour
+    Artwork images:     1 year  (immutable — filenames are content-addressed)
+    style.css:          1 day
+
+
+================================================================================
+  LOCAL PREVIEW
+================================================================================
+
+Because the site uses root-relative paths (/style.css, /playlists/...), you
+MUST use a local web server to preview it. Opening index.html directly in a
+browser will result in broken styles and missing images.
+
+  # Start a server from the output directory
+  cd ~/my-site && python3 -m http.server 8000
+
+  # Then open in your browser:
+  http://localhost:8000/
+
+Alternatively, use build_site.py's built-in server:
+  python3 build_site.py --input ~/Playlists --output ~/my-site --serve
+
+
+================================================================================
+  DEPENDENCIES
+================================================================================
+
+Python 3.10+ is required (uses union type hints: str | None).
+
+Required packages:
+  requests        HTTP requests (MusicBrainz, Cover Art Archive, Deezer)
+  mutagen         MP3 tag reading (embedded APIC artwork + Deezer source ID)
+
+Install:
+  pip install requests mutagen
+
+Optional:
+  Pillow          Image resizing (not currently used but useful for future
+                  thumbnail optimisation)
+  pip install Pillow
+
+Fuse.js is loaded at runtime from jsDelivr CDN (https://cdn.jsdelivr.net).
+The search page requires internet access to load Fuse.js. For fully offline
+use, download fuse.min.js and update the <script> src in search.html.
+
+
+================================================================================
+  ITUNES XML — METADATA SOURCE OF TRUTH
+================================================================================
+
+All track metadata (title, artist, album, year, track order) comes from the
+iTunes XML file. The MP3 files are used for two artwork lookups: embedded APIC
+frames are extracted first, then Deezer IDs from TXXX tags. Display metadata
+(title, artist, album, year) always comes from the iTunes XML, not the MP3 tags.
+
+iTunes XML field mapping:
+  Name    → Song title (may include "[Original Artist]" in covers mode)
+  Artist  → Cover artist (the performer whose version is in the playlist)
+  Album   → Album the cover version appears on
+  Year    → Release year of the cover version
+
+COVERS MODE NAME FORMAT
+-----------------------
+In covers mode, the iTunes Name field may use the format:
+  "Song Title [Original Artist]"
+  Example: "Ring of Fire [Johnny Cash]"
+
+The generator parses this automatically:
+  • "Ring of Fire" is displayed as the track title
+  • "Johnny Cash" is displayed as "orig. Johnny Cash" on the card
+  • The Artist field ("Eric Burdon & The Animals") is the cover artist
+
+Parentheses are also supported: "Song Title (Original Artist)"
+
+
+================================================================================
+  TROUBLESHOOTING
+================================================================================
+
+Problem: "No playlists found in XML"
+  Cause:  The XML file may be a full iTunes library export with no playlists,
+          or the playlist section is empty.
+  Fix:    In iTunes/Music, right-click a playlist → Export → XML.
+          Use --list-playlists to check what playlists the XML contains.
+
+Problem: Wrong artwork for a track
+  Fix:    Add an mbid_overrides entry in the overrides file with the correct
+          MusicBrainz Release ID. Find it at musicbrainz.org.
+  Or:     Add an art_file_overrides entry pointing to a local image file.
+
+Problem: No links for a track
+  Cause:  MusicBrainz found a release but it has no URL relationships, or
+          the search returned the wrong release.
+  Fix:    Add an mbid_overrides entry with the correct MBID.
+
+Problem: Search page shows no results
+  Cause:  search_index.json is missing or the page is being opened as a file.
+  Fix:    Make sure you're using a web server (python3 -m http.server 8000).
+          Re-run build_site.py to regenerate search_index.json.
+
+Problem: Artwork images missing after deploying to Cloudflare
+  Cause:  Root-relative paths require the site to be served from the root.
+  Fix:    Ensure you uploaded the entire output folder, not just the HTML files.
+
+Problem: Build is slow
+  Cause:  MusicBrainz rate-limits to 1 request/second; 2 requests per track
+          means ~50s per 25-track playlist.
+  Fix:    Results are cached — subsequent builds of unchanged playlists are
+          instant. Use --force only when you need to refresh all data.
+
+Problem: "Missing dependency: pip install requests"
+  Fix:    pip install requests mutagen
+
+
+================================================================================
+  FILE REFERENCE
+================================================================================
+
+  build_site.py               Site orchestrator
+  playlist_generator.py       Per-playlist HTML generator
+  style.css                   Shared stylesheet
+  itunes_playlist_site.txt    This manual
+  itunes_playlist_site_spec.md  Full technical specification
+
+  Per-playlist overrides (place alongside XML files):
+  <slug>_overrides.json       MBID, album display, and art file overrides
+
+  Generated files (do not edit manually):
+  output/index.html           Landing page
+  output/search.html          Search page
+  output/search_index.json    Search index
+  output/style.css            Copy of stylesheet
+  output/_headers             Cloudflare cache headers
+  output/.build_state.json    Incremental build state
+  output/playlists/<slug>/    Per-playlist directory
+    index.html                Playlist page
+    playlist_meta.json        Metadata for index/search generation
+    img/                      Artwork images
+
+
+================================================================================
+  END OF MANUAL
+================================================================================
