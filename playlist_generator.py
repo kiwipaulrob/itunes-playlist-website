@@ -1,3 +1,4 @@
+
 """
 playlist_generator.py — Per-playlist HTML generator.
 
@@ -24,6 +25,8 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import configparser
 import time
+import threading
+import concurrent.futures
 import unicodedata
 from pathlib import Path
 from urllib.parse import quote, quote_plus, unquote, urlparse
@@ -94,7 +97,12 @@ CAA_IMAGE_SIZE  = _cget('artwork',      'caa_image_size',  '500')
 FAVICON_CDN     = _cget('cdn',          'favicon_cdn_url', 'https://www.google.com/s2/favicons')
 ORIG_LABEL      = _cget('site',         'orig_label',      'orig.')
 CONSTRUCTED_LINK_QUERY = _cget('search_terms', 'constructed_link_query', 'title_and_artist')
+
 MB_SEARCH_ATTEMPTS     = _cint('musicbrainz',  'search_attempts',  4)
+
+# Threading lock for MusicBrainz rate limit (global — shared across all calls)
+mb_lock = threading.Lock()
+
 
 # ── Constructed-link URL templates (from config.ini [links] section) ──────────
 
@@ -354,16 +362,18 @@ def get_deezer_artwork(deezer_id: str, session: requests.Session) -> bytes | Non
 
 def mb_get(path: str, params: dict, session: requests.Session, delay_ref: list) -> dict:
     """Rate-limited MusicBrainz GET. delay_ref is a 1-element list holding last_request_time."""
-    elapsed = time.time() - delay_ref[0]
-    if elapsed < MB_DELAY:
-        time.sleep(MB_DELAY - elapsed)
+    with mb_lock:
+        elapsed = time.time() - delay_ref[0]
+        if elapsed < MB_DELAY:
+            time.sleep(MB_DELAY - elapsed)
+        delay_ref[0] = time.time()
+
     r = session.get(
         f"{MB_BASE}/{path}",
         params={**params, "fmt": "json"},
         headers={"User-Agent": MB_AGENT},
         timeout=MB_TIMEOUT,
     )
-    delay_ref[0] = time.time()
     r.raise_for_status()
     return r.json()
 
@@ -810,9 +820,9 @@ def generate_playlist(
     """
     overrides = overrides or {}
 
-    mbid_overrides         = overrides.get("mbid_overrides", {})
+    mbid_overrides          = overrides.get("mbid_overrides", {})
     album_display_overrides = overrides.get("album_display_overrides", {})
-    art_file_overrides     = overrides.get("art_file_overrides", {})
+    art_file_overrides      = overrides.get("art_file_overrides", {})
 
     output_dir  = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -847,6 +857,9 @@ def generate_playlist(
         with open(_links_cache_path, encoding='utf-8') as f:
             links_cache = json.load(f)
 
+    # Lock protecting links_cache reads/writes across threads
+    _links_cache_lock = threading.Lock()
+
     session   = requests.Session()
     delay_ref = [0.0]
 
@@ -854,72 +867,95 @@ def generate_playlist(
     if verbose: print(f"  Parsing {xml_path}…")
     display_name, tracks = parse_itunes_xml(xml_path, playlist_name)
 
-    # Apply album display overrides
+    # Apply album display overrides to track dicts before processing
     for t in tracks:
         key = str(t["number"])
         if key in album_display_overrides:
             t["album_display"] = album_display_overrides[key]
 
-    track_arts  = []
-    track_links = []
     missing_art = []
 
-    for t in tracks:
-        num = str(t["number"])
+    def process_track(t_idx, t):
+        num        = str(t["number"])
         num_padded = f"{t['number']:02d}"
-
         if verbose:
             print(f"  [{num_padded}] {t['title']} — {t['artist']}")
 
-        # ── MBID ──────────────────────────────────────────────────────────────
+        # ── MusicBrainz lookup ─────────────────────────────────────────────────
         mbid = mbid_overrides.get(num)
         if not mbid:
             cache_key = f"{t['artist']}|{t['album']}"
-            if cache_key in links_cache and "mbid" in links_cache[cache_key]:
-                mbid = links_cache[cache_key]["mbid"]
+            with _links_cache_lock:
+                cached_mbid = links_cache.get(cache_key, {}).get("mbid")
+            if cached_mbid:
+                mbid = cached_mbid
             else:
-                mbid = find_mbid_by_album_artist(t["album"], t["artist"], session, delay_ref, title=t.get("title", ""))
-                if cache_key not in links_cache:
-                    links_cache[cache_key] = {}
-                links_cache[cache_key]["mbid"] = mbid
+                mbid = find_mbid_by_album_artist(
+                    t["album"], t["artist"], session, delay_ref, title=t.get("title", "")
+                )
+                with _links_cache_lock:
+                    if cache_key not in links_cache:
+                        links_cache[cache_key] = {}
+                    links_cache[cache_key]["mbid"] = mbid
 
-        # ── Links ─────────────────────────────────────────────────────────────
+        # ── Link lookup ────────────────────────────────────────────────────────
         cache_key = f"{t['artist']}|{t['album']}"
-        if cache_key in links_cache and "links" in links_cache[cache_key]:
-            raw_links = links_cache[cache_key]["links"]
+        with _links_cache_lock:
+            cached_links = links_cache.get(cache_key, {}).get("links")
+        if cached_links is not None:
+            raw_links = cached_links
         elif mbid:
             raw_links = get_release_links(mbid, session, delay_ref)
-            if cache_key not in links_cache:
-                links_cache[cache_key] = {}
-            links_cache[cache_key]["links"] = raw_links
+            with _links_cache_lock:
+                if cache_key not in links_cache:
+                    links_cache[cache_key] = {}
+                links_cache[cache_key]["links"] = raw_links
         else:
             raw_links = []
 
-        track_links.append(best_links(raw_links, mbid, artist=t["artist"], album=t.get("album_display", t.get("album", "")), title=t.get("title", "")))
+        tl = best_links(
+            raw_links, mbid,
+            artist=t["artist"],
+            album=t.get("album_display", t.get("album", "")),
+            title=t.get("title", ""),
+        )
 
-        # ── Artwork ───────────────────────────────────────────────────────────
+        # ── Artwork ────────────────────────────────────────────────────────────
         art_override = art_file_overrides.get(num)
-        img_bytes = fetch_artwork(t, mbid, art_override, _art_cache, session, delay_ref)
+        img_bytes    = fetch_artwork(t, mbid, art_override, _art_cache, session, delay_ref)
 
+        m_art = None
         if img_bytes and save_art_files:
             out_path = _img_dir / f"{num_padded}.jpg"
             out_path.write_bytes(img_bytes)
-            # Root-relative path for site use
             art_src = f"img/{num_padded}.jpg"
         elif img_bytes:
             art_src = bytes_to_data_uri(img_bytes)
         else:
             art_src = ART_PLACEHOLDER
-            missing_art.append({
-                "num": num,
-                "num_padded": num_padded,
-                "title": t["title"],
-                "artist": t["artist"],
-                "album": t.get("album_display", t.get("album", "")),
+            m_art = {
+                "num":         num,
+                "num_padded":  num_padded,
+                "title":       t["title"],
+                "artist":      t["artist"],
+                "album":       t.get("album_display", t.get("album", "")),
                 "img_filename": f"{num_padded}.jpg",
-            })
+            }
 
-        track_arts.append(art_src)
+        return t_idx, art_src, tl, m_art
+
+    # ── Concurrent track processing ────────────────────────────────────────────
+    track_arts  = [None] * len(tracks)
+    track_links = [None] * len(tracks)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(process_track, i, t): i for i, t in enumerate(tracks)}
+        for future in concurrent.futures.as_completed(futures):
+            i, art_src, tl, m_art = future.result()
+            track_arts[i]  = art_src
+            track_links[i] = tl
+            if m_art:
+                missing_art.append(m_art)
 
     # Save links cache
     with open(_links_cache_path, "w", encoding='utf-8') as f:
