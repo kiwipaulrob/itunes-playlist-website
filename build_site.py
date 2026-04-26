@@ -16,6 +16,7 @@ import os
 import configparser
 import re
 import shutil
+import concurrent.futures
 import sys
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -829,7 +830,9 @@ def main():
     force_rebuild = args.force or _ini_bool('build', 'force_rebuild', False)
     verbose = args.verbose or _ini_bool('build', 'verbose', False)
 
-    for playlist in playlists:
+
+    def process_playlist(playlist):
+        meta = None
         if needs_rebuild(playlist, build_state, force=force_rebuild):
             meta = build_playlist(
                 playlist, str(output_dir), config,
@@ -837,25 +840,39 @@ def main():
                 dry_run=args.dry_run,
                 verbose=verbose,
             )
-            if meta and not args.dry_run:
-                new_build_state[playlist["slug"]] = {
-                    "xml_hash": get_xml_hash(playlist["xml_path"]),
-                    "built_at": datetime.now(timezone.utc).isoformat(),
-                    "track_count": meta.get("track_count", 0),
-                }
-            built_count += 1
+            return ('built', playlist, meta)
         else:
-            # Load cached metadata
             meta_path = output_dir / "playlists" / playlist["slug"] / "playlist_meta.json"
             if meta_path.exists():
                 with open(meta_path, encoding='utf-8') as f:
                     meta = json.load(f)
-                print(f"  Skipped (unchanged): {playlist['name']}")
+                return ('skipped_cached', playlist, meta)
             else:
                 meta = {"name": playlist["name"], "slug": playlist["slug"], "tracks": [], "track_count": 0}
-            skipped_count += 1
+                return ('skipped_nocached', playlist, meta)
 
-        all_playlist_meta.append(meta)
+    # Dictionary to keep the correct original order while collecting metas
+    order_map = {p['slug']: idx for idx, p in enumerate(playlists)}
+    all_playlist_meta = [None] * len(playlists)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {executor.submit(process_playlist, p): p for p in playlists}
+        for future in concurrent.futures.as_completed(futures):
+            status, playlist, meta = future.result()
+            all_playlist_meta[order_map[playlist['slug']]] = meta
+            
+            if status == 'built':
+                if meta and not args.dry_run:
+                    new_build_state[playlist["slug"]] = {
+                        "xml_hash": get_xml_hash(playlist["xml_path"]),
+                        "built_at": datetime.now(timezone.utc).isoformat(),
+                        "track_count": meta.get("track_count", 0),
+                    }
+                built_count += 1
+            else:
+                if status == 'skipped_cached':
+                    print(f"  Skipped (unchanged): {playlist['name']}")
+                skipped_count += 1
 
     print(f"\n  Built: {built_count}  Skipped (cached): {skipped_count}\n")
 
