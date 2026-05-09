@@ -95,6 +95,8 @@ img { display: block; max-width: 100%; }
 .site-nav a:hover,
 .site-nav a.active { color: var(--accent); text-decoration: none; }
 
+.nav-sep { color: var(--text-dim); margin: 0 0.1em; }
+
 /* ── Hero Banner (Landing Page) ───────────────────────────── */
 
 .hero {
@@ -200,6 +202,55 @@ img { display: block; max-width: 100%; }
 
 @media (max-width: 900px) { .playlist-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 560px) { .playlist-grid { grid-template-columns: 1fr; } }
+
+/* ── Landing Page: Index Wrapper & Sort Bar ───────────────── */
+
+.index-grid-wrap {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.playlist-sort-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.sort-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+}
+
+.sort-btn {
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.3rem 0.85rem;
+  border-radius: 20px;
+  border: 1px solid var(--border-hover);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition), background var(--transition);
+}
+
+.sort-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.sort-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1209;
+}
 
 .playlist-card {
   background: var(--bg-card);
@@ -426,6 +477,29 @@ img { display: block; max-width: 100%; }
 }
 
 /* ── Search Page ──────────────────────────────────────────── */
+
+.search-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.search-heading {
+  font-family: var(--font-heading);
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
+  font-weight: 900;
+  color: var(--text);
+  margin-bottom: 1.5rem;
+}
+
+.search-stats {
+  max-width: 640px;
+  margin: 0.75rem auto 0;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  text-align: center;
+  font-style: italic;
+}
 
 .search-bar-wrap {
   max-width: 640px;

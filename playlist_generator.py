@@ -103,6 +103,16 @@ MB_SEARCH_ATTEMPTS     = _cint('musicbrainz',  'search_attempts',  4)
 # Threading lock for MusicBrainz rate limit (global — shared across all calls)
 mb_lock = threading.Lock()
 
+# Per-thread HTTP sessions — each worker thread gets its own Session so we
+# avoid sharing adapter state and cookie jars across concurrent requests.
+_thread_local = threading.local()
+
+def _get_thread_session() -> requests.Session:
+    """Return a per-thread requests.Session, created on first use by each worker."""
+    if not hasattr(_thread_local, 'session'):
+        _thread_local.session = requests.Session()
+    return _thread_local.session
+
 
 # ── Constructed-link URL templates (from config.ini [links] section) ──────────
 
@@ -498,7 +508,8 @@ def fetch_artwork(
 
     # 1. Art file override (local disk — highest priority, always fresh)
     if art_file_override and os.path.exists(art_file_override):
-        img_bytes = open(art_file_override, "rb").read()
+        with open(art_file_override, "rb") as fh:
+            img_bytes = fh.read()
 
     # 2. Embedded APIC artwork from source MP3 (local disk — no network needed)
     if img_bytes is None:
@@ -860,7 +871,7 @@ def generate_playlist(
     # Lock protecting links_cache reads/writes across threads
     _links_cache_lock = threading.Lock()
 
-    session   = requests.Session()
+    # HTTP sessions are created per-thread inside process_track via _get_thread_session()
     delay_ref = [0.0]
 
     # Parse XML
@@ -876,6 +887,7 @@ def generate_playlist(
     missing_art = []
 
     def process_track(t_idx, t):
+        session    = _get_thread_session()  # per-thread — no shared state across workers
         num        = str(t["number"])
         num_padded = f"{t['number']:02d}"
         if verbose:

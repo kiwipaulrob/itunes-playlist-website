@@ -15,6 +15,7 @@ import json
 import os
 import configparser
 import re
+import unicodedata
 import shutil
 import concurrent.futures
 import sys
@@ -198,12 +199,14 @@ def load_config(input_dir=None):
 # ---------------------------------------------------------------------------
 
 def slugify(name):
-    """Convert playlist name to URL-safe slug."""
-    slug = name.lower()
-    slug = re.sub(r'[^a-z0-9\s-]', '', slug)
-    slug = re.sub(r'\s+', '-', slug.strip())
-    slug = re.sub(r'-+', '-', slug)
-    return slug
+    """Convert playlist name to URL-safe slug.
+    Identical logic to playlist_generator.py — must stay in sync to avoid
+    slug mismatches on playlist names containing non-ASCII characters.
+    """
+    text = unicodedata.normalize("NFKD", name)
+    text = text.encode("ascii", "ignore").decode("ascii")
+    text = re.sub(r"[^\w\s-]", "", text).strip().lower()
+    return re.sub(r"[\s_-]+", "-", text)
 
 
 def discover_playlists(input_dir, only_filter=None):
@@ -412,7 +415,7 @@ SEARCH_HTML = '''<!DOCTYPE html>
     <nav class="site-nav">
       <a href="./" class="nav-home">{site_title}</a>
       <span class="nav-sep">&middot;</span>
-      <a href="search.html" class="nav-active">Search</a>
+      <a href="search.html" class="active">Search</a>
     </nav>
   </header>
 
@@ -544,7 +547,7 @@ INDEX_HTML = '''<!DOCTYPE html>
 <body>
   <header class="site-header">
     <nav class="site-nav">
-      <a href="./" class="nav-home nav-active">{site_title}</a>
+      <a href="./" class="nav-home active">{site_title}</a>
       <span class="nav-sep">&middot;</span>
       <a href="search.html">Search</a>
     </nav>
@@ -613,7 +616,7 @@ PLAYLIST_CARD_HTML = '''      <a class="playlist-card" href="{url}" data-name="{
         <div class="art-cloud">
 {cloud_imgs}
         </div>
-        <div class="card-meta">
+        <div class="playlist-card-footer">
           <span class="card-track-count">{track_count} tracks</span>
           {year_range_html}
         </div>
@@ -681,7 +684,7 @@ def build_index_page(all_playlist_meta, output_dir, config, playlist_order=None)
             cloud_lines.append('          <div class="cloud-placeholder"></div>')
 
         yr_range = meta.get("year_range", "").replace("–", "&ndash;")
-        card_year_html = f'<span class="card-year">{yr_range}</span>' if yr_range else ''
+        card_year_html = f'<span class="card-year-range">{yr_range}</span>' if yr_range else ''
 
         card = PLAYLIST_CARD_HTML.format(
             url=meta.get("url", "#"),
