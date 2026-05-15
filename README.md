@@ -19,7 +19,7 @@ Live example: [hearmycovers.com](http://hearmycovers.com)
 ## Features
 
 - 🎨 **Magazine dark theme** — warm gold accents, near-black background (Mojo/Uncut energy)
-- 🖼️ **Smart artwork lookup** — tries embedded MP3 tags (APIC), Deezer, Cover Art Archive, local overrides
+- 🖼️ **Smart artwork lookup** — tries embedded MP3/M4A tags (APIC/covr), Deezer, Cover Art Archive, local overrides
 - 🔗 **Rich link pills** per track — review sites (Pitchfork, BBC, Guardian, NME, etc.) and database links (AllMusic, Discogs, RYM, MusicBrainz, Spotify, YouTube, Apple Music, Deezer, Bandcamp and more)
 - 🔍 **Search** across song title, cover artist, and original artist
 - 🗂️ **Sort** playlists alphabetically or by date added
@@ -184,8 +184,11 @@ Key config sections:
 
 | Version | Changes |
 |---|---|
+| V2.6.1 | M4A support: embedded artwork (covr atom) and Deezer ID (freeform atom) now extracted from M4A/AAC files |
+| V2.6 | Bug fixes: CSS class mismatches (card footer, nav active, sort bar), unified slugify(), per-thread requests.Session, unclosed file handle |
+| V2.5 | site.json fully removed; all settings in config.ini; playlist_order moved to [playlists] section |
 | V2.4.1 | Bug fixes: constructed link templates, per-site search terms, search_attempts depth, thumbnail_size CSS variable |
-| V2.4 | Full config.ini extraction — all settings moved out of code; site.json removed |
+| V2.4 | Full config.ini extraction — all settings moved out of code |
 | V2.3 | PyInstaller EXE support |
 | V2.2 | MP3 embedded APIC artwork extraction |
 | V2.1 | Additional hyperlinked sources (Pitchfork, Discogs, RYM, etc.) |

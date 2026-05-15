@@ -45,6 +45,7 @@ except ImportError:
 try:
     from mutagen.id3 import ID3, ID3NoHeaderError
     from mutagen.mp3 import MP3
+    from mutagen.mp4 import MP4
     MUTAGEN_AVAILABLE = True
 except ImportError:
     MUTAGEN_AVAILABLE = False
@@ -310,40 +311,63 @@ def list_playlists(xml_path: str):
 
 # ── Deezer ID extraction ───────────────────────────────────────────────────────
 
-def get_deezer_id(mp3_path: str) -> str | None:
-    if not MUTAGEN_AVAILABLE or not mp3_path or not os.path.exists(mp3_path):
+def get_deezer_id(file_path: str) -> str | None:
+    """Return Deezer track ID from MP3 TXXX tag or M4A freeform atom, or None."""
+    if not MUTAGEN_AVAILABLE or not file_path or not os.path.exists(file_path):
         return None
+    ext = os.path.splitext(file_path)[1].lower()
     try:
-        tags = ID3(mp3_path)
-        for key in tags.keys():
-            if key.startswith("TXXX:") and "deezer" in key.lower():
-                val = str(tags[key].text[0]).strip()
-                if val.isdigit():
-                    return val
+        if ext == ".m4a":
+            tags = MP4(file_path)
+            for key, vals in tags.items():
+                if "deezer" in key.lower():
+                    v = vals[0] if isinstance(vals, list) else vals
+                    if isinstance(v, bytes):
+                        v = v.decode("utf-8", errors="ignore").strip()
+                    else:
+                        v = str(v).strip()
+                    if v.isdigit():
+                        return v
+        else:
+            tags = ID3(file_path)
+            for key in tags.keys():
+                if key.startswith("TXXX:") and "deezer" in key.lower():
+                    val = str(tags[key].text[0]).strip()
+                    if val.isdigit():
+                        return val
     except Exception:
         pass
     return None
 
 
-def get_embedded_artwork(mp3_path: str) -> bytes | None:
+def get_embedded_artwork(file_path: str) -> bytes | None:
     """
-    Extract embedded APIC (attached picture) artwork from an MP3 file.
+    Extract embedded artwork from an MP3 (APIC frame) or M4A (covr atom) file.
     Returns raw image bytes, or None if not found / file inaccessible.
-    Tries all APIC frames, preferring cover-front type (type byte 3).
+    For MP3: tries all APIC frames, preferring cover-front type (type byte 3).
+    For M4A: reads the first entry in the covr atom.
     """
-    if not MUTAGEN_AVAILABLE or not mp3_path or not os.path.exists(mp3_path):
+    if not MUTAGEN_AVAILABLE or not file_path or not os.path.exists(file_path):
         return None
+    ext = os.path.splitext(file_path)[1].lower()
     try:
-        tags = ID3(mp3_path)
-        apic_frames = [v for k, v in tags.items() if k.startswith("APIC")]
-        if not apic_frames:
-            return None
-        # Prefer picture type 3 (Cover front), fall back to any APIC
-        cover = next((f for f in apic_frames if f.type == 3), apic_frames[0])
-        data = cover.data
-        return data if data else None
+        if ext == ".m4a":
+            tags = MP4(file_path)
+            covers = tags.get("covr", [])
+            if covers:
+                return bytes(covers[0])
+        else:
+            tags = ID3(file_path)
+            apic_frames = [v for k, v in tags.items() if k.startswith("APIC")]
+            if not apic_frames:
+                return None
+            # Prefer picture type 3 (Cover front), fall back to any APIC
+            cover = next((f for f in apic_frames if f.type == 3), apic_frames[0])
+            data = cover.data
+            return data if data else None
     except Exception:
         return None
+    return None
 
 
 def get_deezer_artwork(deezer_id: str, session: requests.Session) -> bytes | None:
@@ -495,7 +519,7 @@ def fetch_artwork(
     """
     Artwork priority:
     1. Art file override (local disk — highest priority, always fresh)
-    2. Embedded APIC frame in the source MP3 (local disk — no network)
+    2. Embedded artwork from source MP3/M4A (APIC/covr — local disk, no network)
     3. Disk cache (skip all network if we have a previous successful fetch)
     4. Deezer API (network — via Deezer track ID in MP3 ID3 TXXX tag)
     5. MusicBrainz Cover Art Archive (network — via MBID)
@@ -511,7 +535,7 @@ def fetch_artwork(
         with open(art_file_override, "rb") as fh:
             img_bytes = fh.read()
 
-    # 2. Embedded APIC artwork from source MP3 (local disk — no network needed)
+    # 2. Embedded artwork from source MP3/M4A (APIC/covr — local disk, no network)
     if img_bytes is None:
         img_bytes = get_embedded_artwork(track.get("location", ""))
 
@@ -519,7 +543,7 @@ def fetch_artwork(
     if img_bytes is None and cache_file.exists():
         return cache_file.read_bytes()
 
-    # 4. Deezer (network — via Deezer track ID stored in MP3 ID3 TXXX tag)
+    # 4. Deezer (network — via Deezer track ID in MP3 TXXX tag or M4A freeform atom)
     if img_bytes is None:
         deezer_id = get_deezer_id(track.get("location", ""))
         if deezer_id:

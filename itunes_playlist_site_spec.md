@@ -284,9 +284,9 @@ Fuse.js is configured to search `title` and `artist` fields only (per spec).
 Priority waterfall — first source that returns bytes wins:
 
 1. Art file override (local disk — highest priority, always read fresh)
-2. **Embedded APIC frame** in the source MP3 file (local disk — no network needed) *(V2.2)*
+2. **Embedded artwork** from source MP3 (APIC frame) or M4A (covr atom) — local disk, no network *(V2.2 / V2.6.1)*
 3. Disk cache (keyed by MBID + artist + album — skips all network if hit)
-4. Deezer API (network — via Deezer track ID stored in MP3 `TXXX` ID3 tag)
+4. Deezer API (network — via Deezer track ID in MP3 `TXXX` tag or M4A freeform atom)
 5. MusicBrainz Cover Art Archive (network — via MBID, override or looked up)
 6. Placeholder image (grey SVG with music note)
 
@@ -374,7 +374,7 @@ that playlist only.
 | Package | Purpose |
 |---------|---------|
 | `requests` | HTTP calls to MusicBrainz, Deezer, CAA |
-| `mutagen` | Read MP3 ID3 tags and embedded artwork |
+| `mutagen` | Read MP3 ID3 tags and M4A atoms; extract embedded artwork |
 | `Pillow` | Resize and convert artwork images |
 | `fuse.min.js` | Client-side fuzzy search (bundled, no CDN) |
 
@@ -498,6 +498,18 @@ All use `urllib.parse.quote_plus(title + " " + artist)`. If `title` is empty, fa
 MusicBrainz-sourced pills, so they always appear last in the database pill row.
 
 Hype Machine dropped — Bandcamp/SoundCloud/Deezer cover that niche better.
+
+---
+
+### V2.6.1 — M4A Embedded Artwork + Deezer ID Support ✅ DONE
+
+Extended `playlist_generator.py` to handle **M4A (AAC/iTunes) files** in addition to MP3:
+
+- `get_embedded_artwork()` — detects `.m4a` → reads `covr` atom via `MP4()`; MP3 APIC path unchanged
+- `get_deezer_id()` — detects `.m4a` → reads `----:com.apple.iTunes:Deezer_track_ID` freeform atom; MP3 TXXX path unchanged
+- `from mutagen.mp4 import MP4` added to import block (part of standard `mutagen` package — no new dependency)
+- Both functions renamed `mp3_path` → `file_path`; called with positional args only — no callers needed updating
+- All errors caught by `except Exception: return None` — malformed M4A files fail silently, same as MP3
 
 ---
 
