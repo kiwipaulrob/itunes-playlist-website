@@ -42,9 +42,12 @@ non-covers playlists in a future refactor.
 /output/
 ├── index.html                  ← landing page (playlist card grid)
 ├── search.html                 ← search page
+├── stats.html                  ← statistics page with charts (v2.8+)
+├── stats.json                  ← pre-computed statistics data (v2.8+)
 ├── style.css                   ← shared stylesheet (all pages link to this)
 ├── fuse.min.js                 ← bundled Fuse.js (no CDN dependency)
 ├── search_index.json           ← pre-built search index
+├── CNAME                        ← custom domain file (if configured)
 ├── playlists/
 │   ├── nuggets-396-covers-xx.html
 │   ├── nuggets-397-covers-xxi.html
@@ -773,6 +776,73 @@ Both functions use NFKD Unicode normalization → ASCII encode → strip non-wor
 
 ---
 
+## V2.8 — Statistics Page ✅ DONE
+
+### Overview
+Generates a statistics summary page showing aggregate data across all playlists: track counts, artist frequencies, timeline distribution, and total duration.
+
+### Components
+
+#### 1. `stats.py`
+New CLI tool that:
+- **Input**: Path to iTunes XML input directory
+- **Output**: `stats.json` (contains aggregated statistics)
+- **Data computed**:
+  - Total tracks across all playlists
+  - Total playlists
+  - Unique original artists (count)
+  - Unique cover artists (count)
+  - Total duration in hours (sum of "Total Time" from all tracks)
+  - Top 10 original artists by frequency
+  - Songs grouped by decade (1920s → 2020s)
+  - Top 10 most prolific cover artists
+
+**Parsing**: Reuses iTunes XML format from `parse_itunes_xml()` in `playlist_generator.py`.
+
+#### 2. `stats.html`
+Interactive statistics page featuring:
+- **Header**: Navigation bar (matching landing page style) with links to Playlists, Search, Statistics
+- **"By the Numbers"**: 5 stat cards (gold accent borders) showing: Tracks, Playlists, Original Artists, Cover Artists, Total Hours
+- **Charts** (using Chart.js):
+  - **Top Original Artists** (horizontal bar chart, 10 artists, gold bars)
+  - **Songs By Decade** (vertical bar chart showing distribution from 1920s–2020s, purple bars)
+  - **Most Prolific Cover Artists** (horizontal bar chart, 10 artists, teal bars)
+- **Styling**: Dark magazine aesthetic matching landing page; gold accents (`#e8b84b`); responsive layout
+- **Data loading**: Fetches `stats.json` via client-side JavaScript; displays "Loading..." while waiting
+
+#### 3. Build Integration (`build_site.py`)
+- New `build_statistics()` function:
+  - Calls `stats.py` with `--xml-dir` and `--output` flags
+  - Generates `stats.json` in output root
+  - Copies `stats.html` to output root
+- Invoked during site build (after search/index, before CNAME write)
+- Added `subprocess` import
+
+#### 4. Navigation Updates
+- **Landing page** (`index.html`): Nav bar now includes "Statistics" link
+- **Stats page**: Has nav bar with "Playlists" and "Search" links; "Statistics" marked active
+- **Search page**: Updated to include "Statistics" link (for consistency)
+
+### Data Isolation
+- No genre tagging; all data derived purely from iTunes metadata:
+  - Artist names (cover artist + original artist from title brackets)
+  - Track duration (Total Time in ms)
+  - Year (from Year field)
+- Decades are computed as `(year // 10) * 10`; tracks with no year are skipped in decade grouping
+
+### Limitations
+- Statistics reset on every build (no incremental updates to `stats.json`)
+- Covers only playlists that have parsed successfully
+- No per-user customization or filtering
+
+### Future Enhancements (V2.9+)
+- Filter by decade / original artist / cover artist
+- Export statistics as CSV
+- Year-on-year comparisons (if tracking builds over time)
+- Genre classification (when available in future refactor)
+
+---
+
 ## V2.7 — Planned Features
 
 ### M3U / M3U8 Input Support
@@ -812,6 +882,19 @@ Standard `#EXTINF` lines supply: duration, a combined "Artist - Title" string, a
 ---
 
 ## Changelog
+
+### V2.8 — Statistics Page
+- Added `stats.py`: CLI tool to compute aggregate statistics (track count, artist frequencies, decade distribution, total hours)
+- Added `stats.html`: Interactive statistics page with Chart.js visualizations (top original artists, songs by decade, prolific cover artists)
+- Updated `build_site.py`: New `build_statistics()` function integrates stats generation into build pipeline
+- Updated navigation: Landing page, stats, and search pages all link to each other
+- Output directory now includes `stats.json` and `stats.html`
+
+### V2.6.1 — M4A Embedded Artwork + Deezer ID Support ✅
+- Added M4A format support via `mutagen.mp4.MP4()`
+- `get_embedded_artwork()`: Reads M4A `covr` atom (equivalent to MP3 APIC frame)
+- `get_deezer_id()`: Reads M4A freeform atom `----:com.apple.iTunes:Deezer_track_ID` (decoded as UTF-8)
+- Inline comments updated: "MP3" → "MP3/M4A" in three places describing artwork waterfall
 
 ### V2.6 — Bug fixes (post-PR audit)
 - **CSS class mismatches fixed**: `card-meta` → `playlist-card-footer`; `card-year` → `card-year-range` in `build_site.py` HTML templates
