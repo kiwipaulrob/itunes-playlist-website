@@ -62,15 +62,12 @@ def parse_itunes_xml(xml_path: str):
         year = info.get("Year", "")
         total_time_ms = info.get("Total Time", 0)
 
-        # Covers mode: title may be "Song Title [orig. Original Artist]"
-        # or "Song Title [Original Artist]"
+        # Covers mode: title format is always "Song Title (orig. Original Artist Name)"
         orig_artist = ""
-        m = re.match(r"^(.*)\s*[\[\(](.*?)[\]\)]$", title)
+        m = re.match(r"^(.+?)\s*\(orig\.\s*(.+?)\)$", title)
         if m:
             title = m.group(1).strip()
             orig_artist = m.group(2).strip()
-            # Strip any leading "orig." prefix
-            orig_artist = re.sub(r"^orig\.\s*", "", orig_artist, flags=re.IGNORECASE)
 
         tracks.append({
             "title": title,
