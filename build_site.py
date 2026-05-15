@@ -414,9 +414,11 @@ SEARCH_HTML = '''<!DOCTYPE html>
 <body>
   <header class="site-header">
     <nav class="site-nav">
-      <a href="./" class="nav-home">{site_title}</a>
+      <a href="./" class="nav-home">Playlists</a>
       <span class="nav-sep">&middot;</span>
       <a href="search.html" class="active">Search</a>
+      <span class="nav-sep">&middot;</span>
+      <a href="stats.html">Statistics</a>
     </nav>
   </header>
 
@@ -548,7 +550,7 @@ INDEX_HTML = '''<!DOCTYPE html>
 <body>
   <header class="site-header">
     <nav class="site-nav">
-      <a href="./" class="nav-home active">{site_title}</a>
+      <a href="./" class="nav-home active">Playlists</a>
       <span class="nav-sep">&middot;</span>
       <a href="search.html">Search</a>
       <span class="nav-sep">&middot;</span>
