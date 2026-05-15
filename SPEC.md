@@ -883,12 +883,16 @@ Standard `#EXTINF` lines supply: duration, a combined "Artist - Title" string, a
 
 ## Changelog
 
-### V2.9 — Navigation Refactor ✅
-- Updated all three pages (landing, search, stats) to show consistent navigation order: **Playlists → Search → Statistics**
-- Changed landing page nav link label from site title to **"Playlists"** (matches search & stats pages)
-- Search page now includes all three nav links (previously was missing Statistics link)
-- Stats page updated to use "Playlists" label instead of hardcoded site title
-- Updated `build_site.py`: Search page template now generates full 3-link navigation
+### V2.9 — Navigation Refactor + Artist Name Cleaning ✅
+- **Navigation**: Updated all three pages (landing, search, stats) to show consistent navigation order: **Playlists → Search → Statistics**
+- **Navigation labels**: Changed landing page nav link from site title to **"Playlists"** (matches search & stats pages)
+- **Search page**: Now includes all three nav links (previously was missing Statistics link)
+- **Stats page**: Updated to use "Playlists" label instead of hardcoded site title
+- **Artist name cleaning** (`stats.py`): Added `clean_artist_name()` function to filter descriptive labels from original artist names:
+  - Removes: "live", "live version", "live at", "acoustic", "remix", "version", "cover", "remaster", "remastered"
+  - Also handles `(live)` and `[live]` formats
+  - Prevents false artist entries in statistics (e.g., prevents "Elvis - live" being counted as two separate artists)
+  - Applied in both unique artist count and top-artist frequency calculations
 
 ### V2.8 — Statistics Page
 - Added `stats.py`: CLI tool to compute aggregate statistics (track count, artist frequencies, decade distribution, total hours)
