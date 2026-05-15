@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Statistics — Hear My Covers</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <style>
+        .site-header {
+            padding: 1rem 0;
+            border-bottom: 1px solid #333;
+            margin-bottom: 2rem;
+        }
+
+        .site-nav {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .nav-home {
+            color: #e8b84b;
+            text-decoration: none;
+            font-family: Georgia, serif;
+            font-size: 1.1rem;
+            transition: color 0.3s ease;
+        }
+
+        .nav-home:hover, .nav-home.active {
+            color: #f0d55d;
+        }
+
+        .nav-sep {
+            color: #666;
+        }
+
+        .site-nav a {
+            color: #999;
+            text-decoration: none;
+            font-size: 0.95rem;
+            transition: color 0.3s ease;
+        }
+
+        .site-nav a:hover, .site-nav a.active {
+            color: #e8b84b;
+        }
+        .stats-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .stats-header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .stats-header h1 {
+            font-size: 3.5rem;
+            font-family: Georgia, serif;
+            color: #e8b84b;
+            margin: 0 0 0.5rem 0;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        .stats-header p {
+            color: #999;
+            font-size: 1rem;
+            margin: 0;
+        }
+
+        .by-numbers {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 3rem;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #222 0%, #1a1a1a 100%);
+            border: 1px solid #e8b84b;
+            border-radius: 4px;
+            padding: 2rem 1.5rem;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .stat-card:hover {
+            border-color: #f0d55d;
+            box-shadow: 0 0 20px rgba(232, 184, 75, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .stat-number {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #e8b84b;
+            margin-bottom: 0.5rem;
+            font-family: 'Monaco', monospace;
+        }
+
+        .stat-label {
+            color: #ccc;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-family: Georgia, serif;
+        }
+
+        .chart-section {
+            margin-bottom: 3rem;
+            background: linear-gradient(135deg, #222 0%, #1a1a1a 100%);
+            border: 1px solid #333;
+            border-radius: 4px;
+            padding: 2rem;
+        }
+
+        .chart-title {
+            font-size: 1.4rem;
+            font-family: Georgia, serif;
+            color: #e8b84b;
+            margin-top: 0;
+            margin-bottom: 2rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .chart-wrapper {
+            position: relative;
+            height: 400px;
+            margin-bottom: 2rem;
+        }
+
+        .chart-wrapper.tall {
+            height: 500px;
+        }
+
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        @media (max-width: 900px) {
+            .two-column {
+                grid-template-columns: 1fr;
+            }
+
+            .stats-header h1 {
+                font-size: 2.5rem;
+            }
+        }
+
+        .nav-section {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 3rem;
+            padding-top: 2rem;
+            border-top: 1px solid #333;
+        }
+
+        .nav-link {
+            color: #e8b84b;
+            text-decoration: none;
+            font-family: Georgia, serif;
+            font-size: 0.95rem;
+            transition: color 0.3s ease;
+        }
+
+        .nav-link:hover {
+            color: #f0d55d;
+        }
+
+        .nav-center {
+            text-align: center;
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .loading {
+            text-align: center;
+            color: #999;
+            padding: 2rem;
+        }
+
+        .error {
+            background: #1a1a1a;
+            border: 1px solid #e8b84b;
+            color: #e8b84b;
+            padding: 1.5rem;
+            border-radius: 4px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body class="dark">
+    <header class="site-header">
+        <nav class="site-nav">
+            <a href="./" class="nav-home">Hear My Covers</a>
+            <span class="nav-sep">&middot;</span>
+            <a href="search.html">Search</a>
+            <span class="nav-sep">&middot;</span>
+            <a href="stats.html" class="active">Statistics</a>
+        </nav>
+    </header>
+
+    <div class="stats-container">
+        <div class="stats-header">
+            <h1>Statistics</h1>
+            <p>A snapshot of your cover collection</p>
+        </div>
+
+        <div id="loading" class="loading">Loading statistics...</div>
+        <div id="error" class="error" style="display: none;"></div>
+
+        <div id="content" style="display: none;">
+            <!-- By the Numbers -->
+            <div class="by-numbers" id="byNumbers"></div>
+
+            <!-- Top Original Artists -->
+            <div class="chart-section">
+                <h2 class="chart-title">Top Original Artists</h2>
+                <div class="chart-wrapper">
+                    <canvas id="topArtistsChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Two Column: Decades + Cover Artists -->
+            <div class="two-column">
+                <div class="chart-section">
+                    <h2 class="chart-title">Songs By Decade</h2>
+                    <div class="chart-wrapper">
+                        <canvas id="decadesChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="chart-section">
+                    <h2 class="chart-title">Most Prolific Cover Artists</h2>
+                    <div class="chart-wrapper">
+                        <canvas id="coverArtistsChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Navigation -->
+            <div class="nav-section">
+                <a href="./" class="nav-link">← Back to Playlists</a>
+                <div class="nav-center">Statistics</div>
+                <div style="width: 100px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Load stats data from stats.json
+        async function loadStats() {
+            try {
+                const response = await fetch('stats.json');
+                if (!response.ok) {
+                    throw new Error('Failed to load statistics');
+                }
+                const stats = await response.json();
+                displayStats(stats);
+            } catch (error) {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+                document.getElementById('error').textContent = `Error: ${error.message}`;
+            }
+        }
+
+        function displayStats(stats) {
+            // Hide loading
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+
+            // By the Numbers cards
+            const byNumbers = document.getElementById('byNumbers');
+            const cards = [
+                { label: 'Tracks', value: stats.total_tracks },
+                { label: 'Playlists', value: stats.total_playlists },
+                { label: 'Original Artists', value: stats.total_orig_artists },
+                { label: 'Cover Artists', value: stats.total_cover_artists },
+                { label: 'Total Hours', value: stats.total_hours },
+            ];
+
+            cards.forEach(card => {
+                const div = document.createElement('div');
+                div.className = 'stat-card';
+                div.innerHTML = `
+                    <div class="stat-number">${card.value}</div>
+                    <div class="stat-label">${card.label}</div>
+                `;
+                byNumbers.appendChild(div);
+            });
+
+            // Color scheme
+            const colors = {
+                primary: '#e8b84b',
+                secondary: '#8b7bb8',
+                accent: '#5a8a99',
+                grid: '#333',
+            };
+
+            // Chart defaults
+            Chart.defaults.color = '#999';
+            Chart.defaults.borderColor = colors.grid;
+
+            // Top Original Artists (horizontal bar)
+            const topArtistsCtx = document.getElementById('topArtistsChart').getContext('2d');
+            new Chart(topArtistsCtx, {
+                type: 'bar',
+                data: {
+                    labels: stats.top_orig_artists.map(a => a.artist),
+                    datasets: [{
+                        label: 'Count',
+                        data: stats.top_orig_artists.map(a => a.count),
+                        backgroundColor: colors.primary,
+                        borderColor: colors.primary,
+                        borderWidth: 0,
+                    }],
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            grid: { color: colors.grid },
+                            ticks: { color: '#999' },
+                        },
+                        y: {
+                            grid: { drawBorder: false, color: 'transparent' },
+                            ticks: { color: '#ccc' },
+                        },
+                    },
+                },
+            });
+
+            // Songs by Decade (vertical bar)
+            const decadesCtx = document.getElementById('decadesChart').getContext('2d');
+            new Chart(decadesCtx, {
+                type: 'bar',
+                data: {
+                    labels: stats.songs_by_decade.map(d => `${d.decade}s`),
+                    datasets: [{
+                        label: 'Count',
+                        data: stats.songs_by_decade.map(d => d.count),
+                        backgroundColor: colors.secondary,
+                        borderColor: colors.secondary,
+                        borderWidth: 0,
+                    }],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: colors.grid },
+                            ticks: { color: '#999' },
+                        },
+                        x: {
+                            grid: { drawBorder: false, color: 'transparent' },
+                            ticks: { color: '#ccc' },
+                        },
+                    },
+                },
+            });
+
+            // Most Prolific Cover Artists (horizontal bar)
+            const coverArtistsCtx = document.getElementById('coverArtistsChart').getContext('2d');
+            new Chart(coverArtistsCtx, {
+                type: 'bar',
+                data: {
+                    labels: stats.top_cover_artists.map(a => a.artist),
+                    datasets: [{
+                        label: 'Releases',
+                        data: stats.top_cover_artists.map(a => a.count),
+                        backgroundColor: colors.accent,
+                        borderColor: colors.accent,
+                        borderWidth: 0,
+                    }],
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            grid: { color: colors.grid },
+                            ticks: { color: '#999' },
+                        },
+                        y: {
+                            grid: { drawBorder: false, color: 'transparent' },
+                            ticks: { color: '#ccc' },
+                        },
+                    },
+                },
+            });
+        }
+
+        // Load on page load
+        document.addEventListener('DOMContentLoaded', loadStats);
+    </script>
+</body>
+</html>

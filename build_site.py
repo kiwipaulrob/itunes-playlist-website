@@ -17,6 +17,7 @@ import configparser
 import re
 import unicodedata
 import shutil
+import subprocess
 import concurrent.futures
 import sys
 if hasattr(sys.stdout, "reconfigure"):
@@ -550,6 +551,8 @@ INDEX_HTML = '''<!DOCTYPE html>
       <a href="./" class="nav-home active">{site_title}</a>
       <span class="nav-sep">&middot;</span>
       <a href="search.html">Search</a>
+      <span class="nav-sep">&middot;</span>
+      <a href="stats.html">Statistics</a>
     </nav>
   </header>
 
@@ -753,6 +756,57 @@ def copy_static_assets(output_dir):
 
 
 # ---------------------------------------------------------------------------
+# Statistics Generation
+# ---------------------------------------------------------------------------
+
+def build_statistics(input_dir, output_dir):
+    """Generate statistics JSON and copy stats.html to output directory."""
+    import subprocess
+    
+    script_dir = Path(__file__).parent
+    stats_script = script_dir / "stats.py"
+    
+    if not stats_script.exists():
+        print(f"  WARNING: stats.py not found at {stats_script}")
+        return
+    
+    stats_json = Path(output_dir) / "stats.json"
+    stats_html = script_dir / "stats.html"
+    stats_html_dst = Path(output_dir) / "stats.html"
+    
+    # Run stats.py to generate stats.json
+    cmd = [
+        sys.executable,
+        str(stats_script),
+        "--xml-dir", input_dir,
+        "--output", str(stats_json),
+    ]
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode == 0:
+            print(f"  Generated: stats.json")
+        else:
+            print(f"  ERROR running stats.py:")
+            if result.stderr:
+                print(result.stderr[-500:])
+            return
+    except subprocess.TimeoutExpired:
+        print(f"  ERROR: stats.py timed out")
+        return
+    except Exception as e:
+        print(f"  ERROR running stats.py: {e}")
+        return
+    
+    # Copy stats.html to output
+    if stats_html.exists():
+        shutil.copy2(stats_html, stats_html_dst)
+        print(f"  Copied: stats.html")
+    else:
+        print(f"  WARNING: stats.html not found at {stats_html}")
+
+
+# ---------------------------------------------------------------------------
 # Local Server
 # ---------------------------------------------------------------------------
 
@@ -897,6 +951,8 @@ def main():
         build_search_index(all_playlist_meta, str(output_dir))
         build_search_page(str(output_dir), config)
 
+    # Generate statistics page
+    build_statistics(args.input, str(output_dir))
 
     write_cname_file(str(output_dir), config)
 
