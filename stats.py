@@ -84,6 +84,28 @@ def parse_itunes_xml(xml_path: str):
     return tracks
 
 
+def clean_artist_name(artist: str) -> str:
+    """
+    Remove descriptive labels from artist names (e.g., 'Elvis - live' -> 'Elvis').
+    Filters out: live, live version, live at, acoustic, remix, version, etc.
+    """
+    if not artist:
+        return artist
+    
+    # List of patterns to remove (case-insensitive)
+    labels_to_remove = [
+        r'\s*-?\s*(live|live version|live at|acoustic|remix|version|cover|remaster|remastered)\s*$',
+        r'\s*\(live\)\s*$',
+        r'\s*\[live\]\s*$',
+    ]
+    
+    cleaned = artist
+    for pattern in labels_to_remove:
+        cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
+    
+    return cleaned.strip()
+
+
 def compute_statistics(xml_input_dir: str):
     """
     Scan all XML files in directory, compute statistics, return dict.
@@ -110,8 +132,13 @@ def compute_statistics(xml_input_dir: str):
 
     total_tracks = len(all_tracks)
     
-    # Unique artists
-    orig_artists = set(t.get("orig_artist", "") for t in all_tracks if t.get("orig_artist", "").strip())
+    # Clean artist names and filter out empty strings
+    # Unique artists (cleaned of descriptive labels)
+    orig_artists = set(
+        clean_artist_name(t.get("orig_artist", "")) 
+        for t in all_tracks 
+        if clean_artist_name(t.get("orig_artist", "")).strip()
+    )
     cover_artists = set(t.get("artist", "") for t in all_tracks if t.get("artist", "").strip())
     
     total_orig_artists = len(orig_artists)
@@ -121,11 +148,12 @@ def compute_statistics(xml_input_dir: str):
     total_ms = sum(t.get("total_time_ms", 0) for t in all_tracks)
     total_hours = total_ms / (1000 * 3600)
 
-    # Top original artists by frequency
+    # Top original artists by frequency (cleaned of descriptive labels)
     orig_artist_counts = Counter()
     for t in all_tracks:
-        if t.get("orig_artist", "").strip():
-            orig_artist_counts[t["orig_artist"]] += 1
+        cleaned = clean_artist_name(t.get("orig_artist", ""))
+        if cleaned.strip():
+            orig_artist_counts[cleaned] += 1
     
     top_orig_artists = orig_artist_counts.most_common(10)
 
