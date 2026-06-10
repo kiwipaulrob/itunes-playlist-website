@@ -312,8 +312,12 @@ def list_playlists(xml_path: str):
 # ── Deezer ID extraction ───────────────────────────────────────────────────────
 
 def get_deezer_id(file_path: str) -> str | None:
-    """Return Deezer track ID from MP3 TXXX tag or M4A freeform atom, or None."""
-    if not MUTAGEN_AVAILABLE or not file_path or not os.path.exists(file_path):
+    """
+    Return Deezer track ID from MP3 TXXX tag or M4A freeform atom, or None.
+    """
+    if not MUTAGEN_AVAILABLE:
+        return None
+    if not file_path or not os.path.exists(file_path):
         return None
     ext = os.path.splitext(file_path)[1].lower()
     try:
@@ -347,7 +351,9 @@ def get_embedded_artwork(file_path: str) -> bytes | None:
     For MP3: tries all APIC frames, preferring cover-front type (type byte 3).
     For M4A: reads the first entry in the covr atom.
     """
-    if not MUTAGEN_AVAILABLE or not file_path or not os.path.exists(file_path):
+    if not MUTAGEN_AVAILABLE:
+        return None
+    if not file_path or not os.path.exists(file_path):
         return None
     ext = os.path.splitext(file_path)[1].lower()
     try:
@@ -356,6 +362,7 @@ def get_embedded_artwork(file_path: str) -> bytes | None:
             covers = tags.get("covr", [])
             if covers:
                 return bytes(covers[0])
+            return None
         else:
             tags = ID3(file_path)
             apic_frames = [v for k, v in tags.items() if k.startswith("APIC")]
@@ -363,11 +370,9 @@ def get_embedded_artwork(file_path: str) -> bytes | None:
                 return None
             # Prefer picture type 3 (Cover front), fall back to any APIC
             cover = next((f for f in apic_frames if f.type == 3), apic_frames[0])
-            data = cover.data
-            return data if data else None
+            return cover.data or None
     except Exception:
         return None
-    return None
 
 
 def get_deezer_artwork(deezer_id: str, session: requests.Session) -> bytes | None:
@@ -427,44 +432,37 @@ def find_mbid_by_album_artist(album: str, artist: str, session: requests.Session
     # Strategy 1: Strict album + artist
     if max_attempts >= 1:
         try:
-            query = f'release:"{album}" AND artist:"{artist}"'
-            data = mb_get("release", {"query": query, "limit": MB_SEARCH_LIMIT}, session, delay_ref)
+            data = mb_get("release", {"query": f'release:"{album}" AND artist:"{artist}"', "limit": MB_SEARCH_LIMIT}, session, delay_ref)
             releases = data.get("releases", [])
             if releases:
                 return releases[0]["id"]
         except Exception:
             pass
 
-    # Strategy 2: Looser album + artist
+    # Strategy 2: Loose album + artist
     if max_attempts >= 2:
         try:
-            query2 = f'"{album}" "{artist}"'
-            data2  = mb_get("release", {"query": query2, "limit": MB_SEARCH_LIMIT}, session, delay_ref)
-            releases2 = data2.get("releases", [])
-            if releases2:
-                return releases2[0]["id"]
+            data = mb_get("release", {"query": f'"{album}" "{artist}"', "limit": MB_SEARCH_LIMIT}, session, delay_ref)
+            if data.get("releases"):
+                return data["releases"][0]["id"]
         except Exception:
             pass
 
     # Strategy 3: Recording title + artist (requires title)
     if max_attempts >= 3 and title:
         try:
-            query3 = f'recording:"{title}" AND artist:"{artist}"'
-            data3  = mb_get("release", {"query": query3, "limit": MB_SEARCH_LIMIT}, session, delay_ref)
-            releases3 = data3.get("releases", [])
-            if releases3:
-                return releases3[0]["id"]
+            data = mb_get("release", {"query": f'recording:"{title}" AND artist:"{artist}"', "limit": MB_SEARCH_LIMIT}, session, delay_ref)
+            if data.get("releases"):
+                return data["releases"][0]["id"]
         except Exception:
             pass
 
     # Strategy 4: Loose title + artist (requires title)
     if max_attempts >= 4 and title:
         try:
-            query4 = f'"{title}" "{artist}"'
-            data4  = mb_get("release", {"query": query4, "limit": MB_SEARCH_LIMIT}, session, delay_ref)
-            releases4 = data4.get("releases", [])
-            if releases4:
-                return releases4[0]["id"]
+            data = mb_get("release", {"query": f'"{title}" "{artist}"', "limit": MB_SEARCH_LIMIT}, session, delay_ref)
+            if data.get("releases"):
+                return data["releases"][0]["id"]
         except Exception:
             pass
 
@@ -515,6 +513,7 @@ def fetch_artwork(
     art_cache_dir: Path,
     session: requests.Session,
     delay_ref: list,
+    verbose: bool = False,
 ) -> bytes | None:
     """
     Artwork priority:
@@ -527,6 +526,7 @@ def fetch_artwork(
     """
     cache_key = _art_cache_key(track, mbid, art_file_override)
     cache_file = art_cache_dir / f"{cache_key}.jpg"
+    loc = track.get("location", "")
 
     img_bytes = None
 
@@ -534,27 +534,44 @@ def fetch_artwork(
     if art_file_override and os.path.exists(art_file_override):
         with open(art_file_override, "rb") as fh:
             img_bytes = fh.read()
+        if verbose:
+            print(f"      [1-Override] ✓ {len(img_bytes)} bytes")
 
     # 2. Embedded artwork from source MP3/M4A (APIC/covr — local disk, no network)
     if img_bytes is None:
-        img_bytes = get_embedded_artwork(track.get("location", ""))
+        img_bytes = get_embedded_artwork(loc)
+        if verbose:
+            print(f"      [2-APIC]     {'✓ %d bytes' % len(img_bytes) if img_bytes else '✗ None'}")
 
     # 3. Disk cache (skip all network if we have a previous successful fetch)
     if img_bytes is None and cache_file.exists():
+        if verbose:
+            print(f"      [3-Cache]    ✓ HIT")
         return cache_file.read_bytes()
 
     # 4. Deezer (network — via Deezer track ID in MP3 TXXX tag or M4A freeform atom)
     if img_bytes is None:
-        deezer_id = get_deezer_id(track.get("location", ""))
+        deezer_id = get_deezer_id(loc)
         if deezer_id:
             img_bytes = get_deezer_artwork(deezer_id, session)
+            if verbose:
+                print(f"      [4-Deezer]   id={deezer_id} → {'✓ %d bytes' % len(img_bytes) if img_bytes else '✗ None'}")
+        elif verbose:
+            print(f"      [4-Deezer]   ✗ no Deezer ID in tags")
 
     # 5. Cover Art Archive (network — via MusicBrainz release ID)
-    if img_bytes is None and mbid:
-        img_bytes = get_caa_artwork(mbid, session)
+    if img_bytes is None:
+        if mbid:
+            img_bytes = get_caa_artwork(mbid, session)
+            if verbose:
+                print(f"      [5-CAA]      mbid={mbid[:8]}… → {'✓ %d bytes' % len(img_bytes) if img_bytes else '✗ None'}")
+        elif verbose:
+            print(f"      [5-CAA]      ✗ no MBID")
 
     if img_bytes:
         cache_file.write_bytes(img_bytes)
+    elif verbose:
+        print(f"      [result]     ✗ NO ARTWORK FOUND")
 
     return img_bytes
 
@@ -958,7 +975,7 @@ def generate_playlist(
 
         # ── Artwork ────────────────────────────────────────────────────────────
         art_override = art_file_overrides.get(num)
-        img_bytes    = fetch_artwork(t, mbid, art_override, _art_cache, session, delay_ref)
+        img_bytes    = fetch_artwork(t, mbid, art_override, _art_cache, session, delay_ref, verbose=verbose)
 
         m_art = None
         if img_bytes and save_art_files:

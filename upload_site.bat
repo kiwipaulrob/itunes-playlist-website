@@ -1,9 +1,18 @@
 @echo off
 title Upload HearMyCovers to GitHub
 setlocal
+cd /d "%~dp0"
+
+if not exist ".venv\Scripts\python.exe" (
+    echo ERROR: Virtual environment not found.
+    echo Run setup_env.bat first to create it.
+    echo.
+    pause
+    exit /b 1
+)
 
 :: Read output_dir from config.ini via build_site.py --print-config
-for /f "usebackq delims=" %%D in (`python "%~dp0build_site.py" --print-config paths.output_dir`) do set OUTPUT_DIR=%%D
+for /f "usebackq delims=" %%D in (`".venv\Scripts\python.exe" "%~dp0build_site.py" --print-config paths.output_dir`) do set OUTPUT_DIR=%%D
 
 if "%OUTPUT_DIR%"=="" (
     echo.

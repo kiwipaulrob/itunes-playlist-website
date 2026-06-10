@@ -32,33 +32,21 @@ Live example: [hearmycovers.com](http://hearmycovers.com)
 ## Requirements
 
 - Python 3.10+
-- Packages: `requests`, `mutagen`, `Pillow`, `python-dateutil`
-
-Install with:
-```
-pip install requests mutagen Pillow python-dateutil
-```
-
----
-
-## File Structure
-
-```
-itunes-playlist-website/
-├── build_site.py           # Site orchestrator — builds all playlists + landing page
-├── playlist_generator.py   # Per-playlist engine — artwork, metadata, HTML generation
-├── style.css               # Magazine dark theme stylesheet
-├── config.ini              # All settings (paths, MusicBrainz, artwork, links, etc.)
-├── rebuild_site.bat        # Windows: run build_site.py
-├── upload_site.bat         # Windows: push output folder to GitHub Pages
-└── itunes_playlist_site.txt  # Full help manual
-```
+- Required packages: `requests`, `mutagen`
 
 ---
 
 ## Quick Start
 
-### 1. Configure `config.ini`
+### 1. Set up the Python environment (first time only)
+
+Double-click **`setup_env.bat`**.
+
+This creates a self-contained `.venv` folder inside the scripts directory and installs all required packages. It uses the `py` launcher to find Python automatically — it is completely independent of whichever Python happens to be on your PATH.
+
+> You only need to do this once. The `.venv` folder persists between builds.
+
+### 2. Configure `config.ini`
 
 Edit the `[paths]` section to point at your files:
 
@@ -86,21 +74,54 @@ playlist_order =
 
 The slug is the playlist name lowercased with spaces replaced by hyphens.
 
-### 2. Add iTunes XML files
+### 3. Add iTunes XML files
 
 Export playlists from iTunes/Music: **File → Library → Export Playlist…** (choose XML format). Place the `.xml` files in your `xml_input_dir`.
 
-### 3. Build the site
+### 4. Build the site
+
+Double-click **`rebuild_site.bat`**.
+
+### 5. Upload to GitHub Pages
+
+Double-click **`upload_site.bat`** — it reads `output_dir` from `config.ini` and force-pushes to your GitHub Pages repo.
+
+---
+
+## File Structure
 
 ```
-python build_site.py
+itunes-playlist-website/
+├── build_site.py           # Site orchestrator — builds all playlists + landing page
+├── playlist_generator.py   # Per-playlist engine — artwork, metadata, HTML generation
+├── stats.py                # Statistics page generator
+├── diagnose_artwork.py     # Standalone artwork diagnostic tool (no side effects)
+├── style.css               # Magazine dark theme stylesheet
+├── config.ini              # All settings (paths, MusicBrainz, artwork, links, etc.)
+├── requirements.txt        # Python package dependencies
+├── setup_env.bat           # Windows: create .venv and install dependencies (run once)
+├── rebuild_site.bat        # Windows: build the site using .venv
+├── upload_site.bat         # Windows: push output folder to GitHub Pages using .venv
+├── diagnose_artwork.bat    # Windows: run artwork diagnostics for a playlist XML
+└── itunes_playlist_site.txt  # Full help manual
 ```
 
-Or on Windows, double-click `rebuild_site.bat`.
+---
 
-### 4. Upload to GitHub Pages
+## Diagnosing Missing Artwork
 
-Double-click `upload_site.bat` (Windows) — it reads `output_dir` from `config.ini` and force-pushes to your GitHub Pages repo.
+If some tracks are missing artwork after a build, run the diagnostic tool to see exactly what is happening for each track — without rebuilding the site or touching any cache files:
+
+```
+diagnose_artwork.bat "C:\path\to\your\Playlist.xml"
+```
+
+Or to check a single track by number:
+```
+diagnose_artwork.bat "C:\path\to\your\Playlist.xml" 3
+```
+
+The tool reports, per track: file found/missing, embedded APIC/covr frames (count, size, mime type), Deezer ID in tags, MusicBrainz search strategy that matched (or failed), and Cover Art Archive availability.
 
 ---
 
@@ -184,8 +205,11 @@ Key config sections:
 
 | Version | Changes |
 |---|---|
+| V2.9.1 | Self-contained `.venv` workflow: `setup_env.bat` creates isolated Python environment; all `.bat` files updated to use `.venv\Scripts\python.exe`; `requirements.txt` added; `diagnose_artwork.bat` added |
+| V2.9 | Navigation order fixed (Playlists → Search → Statistics); `diagnose_artwork.py` standalone diagnostic tool added |
+| V2.8 | Statistics page added (By the Numbers, Top Original Artists, Songs By Decade, Most Prolific Cover Artists) |
 | V2.6.1 | M4A support: embedded artwork (covr atom) and Deezer ID (freeform atom) now extracted from M4A/AAC files |
-| V2.6 | Bug fixes: CSS class mismatches (card footer, nav active, sort bar), unified slugify(), per-thread requests.Session, unclosed file handle |
+| V2.6 | Bug fixes: CSS class mismatches, unified slugify(), per-thread requests.Session, unclosed file handle |
 | V2.5 | site.json fully removed; all settings in config.ini; playlist_order moved to [playlists] section |
 | V2.4.1 | Bug fixes: constructed link templates, per-site search terms, search_attempts depth, thumbnail_size CSS variable |
 | V2.4 | Full config.ini extraction — all settings moved out of code |
