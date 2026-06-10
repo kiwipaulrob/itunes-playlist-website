@@ -11,8 +11,8 @@ if not exist ".venv\Scripts\python.exe" (
     exit /b 1
 )
 
-:: Read output_dir directly from config.ini (no dependency on build_site.py)
-for /f "usebackq delims=" %%D in (`".venv\Scripts\python.exe" -c "import configparser, sys; c=configparser.ConfigParser(interpolation=None); c.read('config.ini', encoding='utf-8'); v=c.get('paths','output_dir','').strip(); print(v) if v else sys.exit(1)"`) do set OUTPUT_DIR=%%D
+:: Read output_dir from config.ini via helper script
+for /f "usebackq delims=" %%D in (`".venv\Scripts\python.exe" _get_output_dir.py`) do set OUTPUT_DIR=%%D
 
 if "%OUTPUT_DIR%"=="" (
     echo.
