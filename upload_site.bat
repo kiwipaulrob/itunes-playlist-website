@@ -11,13 +11,27 @@ if not exist ".venv\Scripts\python.exe" (
     exit /b 1
 )
 
-:: Read output_dir from config.ini via build_site.py --print-config
-for /f "usebackq delims=" %%D in (`".venv\Scripts\python.exe" "%~dp0build_site.py" --print-config paths.output_dir`) do set OUTPUT_DIR=%%D
+:: Read output_dir directly from config.ini (no dependency on build_site.py)
+for /f "usebackq delims=" %%D in (`".venv\Scripts\python.exe" -c "import configparser, sys; c=configparser.ConfigParser(interpolation=None); c.read('config.ini', encoding='utf-8'); v=c.get('paths','output_dir','').strip(); print(v) if v else sys.exit(1)"`) do set OUTPUT_DIR=%%D
 
 if "%OUTPUT_DIR%"=="" (
     echo.
-    echo ERROR: Could not read output_dir from config.ini
-    echo Make sure config.ini exists alongside build_site.py
+    echo ERROR: output_dir is missing or blank in config.ini
+    echo.
+    echo Open config.ini and set output_dir to your site output folder, e.g.:
+    echo   output_dir = C:\Users\prob\OneDrive\Documents2\hearmycovers
+    echo.
+    pause
+    exit /b 1
+)
+
+if "%OUTPUT_DIR%"=="C:\Users\YOUR_USERNAME\Documents\hearmycovers" (
+    echo.
+    echo ERROR: config.ini still has the placeholder path for output_dir.
+    echo.
+    echo Open config.ini and replace:
+    echo   C:\Users\YOUR_USERNAME\Documents\hearmycovers
+    echo with your actual output folder path.
     echo.
     pause
     exit /b 1
@@ -26,7 +40,9 @@ if "%OUTPUT_DIR%"=="" (
 cd /d "%OUTPUT_DIR%"
 if errorlevel 1 (
     echo.
-    echo ERROR: Could not cd to output directory: %OUTPUT_DIR%
+    echo ERROR: Could not cd to output directory:
+    echo   %OUTPUT_DIR%
+    echo Check that this folder exists and the path in config.ini is correct.
     echo.
     pause
     exit /b 1
@@ -60,7 +76,6 @@ git push --force origin main
 echo.
 echo ========================================
 echo  Done! Site live at:
-echo  https://kiwipaulrob.github.io/hearmycovers/
 echo  https://hearmycovers.com
 echo ========================================
 echo.
